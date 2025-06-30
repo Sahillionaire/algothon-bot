@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from main import getMyPosition as getPosition
 
 nInst = 0
@@ -56,7 +57,7 @@ def calcPL(prcHist, numTestDays):
             print ("Day %d value: %.2lf todayPL: $%.2lf $-traded: %.0lf return: %.5lf" % (t,value, todayPL, totDVolume, ret))
             todayPLL.append(todayPL)
     pll = np.array(todayPLL)
-    (plmu,plstd) = (np.mean(pll), np.std(pll))
+    (plmu,plstd) = (np.mean(pll), np.std(pll))  
     annSharpe = 0.0
     if (plstd > 0):
         annSharpe = np.sqrt(249) * plmu / plstd
