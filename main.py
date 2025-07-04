@@ -22,6 +22,21 @@ def get_features(prices):
     std_ratio = std_20 / (ma_20 + 1e-6)
     roll_min = pd.DataFrame(prices.T).rolling(10).min().values.T
     roll_max = pd.DataFrame(prices.T).rolling(10).max().values.T
+    ema_10 = df.ewm(span=10, adjust=False).mean().values.T
+    delta = np.diff(prices, axis=1)
+    up = np.maximum(delta, 0)
+    down = -np.minimum(delta, 0)
+    roll_up = pd.DataFrame(up.T).rolling(14).mean().values.T
+    roll_down = pd.DataFrame(down.T).rolling(14).mean().values.T
+    rs = roll_up / (roll_down + 1e-6)
+    rsi = 100 - (100 / (1 + rs))
+    # Additional features
+    ma_50 = df.rolling(50).mean().values.T
+    ema_20 = df.ewm(span=20, adjust=False).mean().values.T
+    std_5 = df.rolling(5).std().values.T
+    price_change_2 = (prices[:, 2:] - prices[:, :-2]) / (prices[:, :-2] + 1e-6)
+    price_change_7 = (prices[:, 7:] - prices[:, :-7]) / (prices[:, :-7] + 1e-6)
+    # Align new features to min_len
     min_len = prices.shape[1] - 20
     features = np.stack([
         momentum_1[:, -min_len:],
@@ -33,7 +48,14 @@ def get_features(prices):
         ma_diff[:, -min_len:],
         std_ratio[:, -min_len:],
         roll_min[:, -min_len:],
-        roll_max[:, -min_len:]
+        roll_max[:, -min_len:],
+        ema_10[:, -min_len:],
+        rsi[:, -min_len:],
+        ma_50[:, -min_len:],
+        ema_20[:, -min_len:],
+        std_5[:, -min_len:],
+        price_change_2[:, -(min_len):],
+        price_change_7[:, -(min_len):]
     ], axis=-1)
     return features
 
@@ -52,8 +74,19 @@ def train_model(prices):
     valid = mask.reshape(-1)
     X = X[valid]
     y = y[valid]
-    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=2)
+    # Optimized RandomForestClassifier
+    model = RandomForestClassifier(
+        n_estimators=300,           # more trees for stability
+        max_depth=12,               # slightly deeper trees
+        min_samples_leaf=5,         # avoid overfitting
+        class_weight='balanced',    # handle class imbalance
+        oob_score=True,             # internal validation
+        random_state=2,
+        n_jobs=-1
+    )
     model.fit(X, y)
+    # Optionally print OOB score for diagnostics
+    # print(f"OOB Score: {model.oob_score_:.4f}")
     return model
 
 def getMyPosition(prices):
@@ -78,17 +111,18 @@ def getMyPosition(prices):
     confidence[confidence < conf_threshold] = 0
     confidence = confidence ** 2.0
     direction = np.sign(probs - 0.5)
-    # Volatility adjustment
+    # Volatility adjustment (more aggressive)
     vol = np.std(prices[:, -20:], axis=1) / (np.mean(prices[:, -20:], axis=1) + 1e-6)
     vol[vol == 0] = 1
-    position_value = 5.0 * direction * confidence * max_dollar_position / (vol + 1e-6)
+    # Increase power of volatility in denominator for stronger adjustment
+    position_value = 5.0 * direction * confidence * max_dollar_position / ((vol + 1e-6) ** 1.5)
     position_in_shares = (position_value / prices[:, -1]).astype(int)
     pos_limits = (max_dollar_position / prices[:, -1]).astype(int)
     raw_position = np.clip(position_in_shares, -pos_limits, pos_limits)
-    # Moving average smoothing
+    # Moving average smoothing (more conservative)
     if prev_position is None:
         smoothed_position = raw_position
     else:
-        smoothed_position = 0.5 * raw_position + 0.5 * prev_position
+        smoothed_position = 0.3 * raw_position + 0.7 * prev_position
     prev_position = smoothed_position.astype(int)
     return prev_position
