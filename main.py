@@ -111,15 +111,12 @@ def getMyPosition(prices):
     confidence[confidence < conf_threshold] = 0
     confidence = confidence ** 2.0
     direction = np.sign(probs - 0.5)
-    # Volatility adjustment (more aggressive)
     vol = np.std(prices[:, -20:], axis=1) / (np.mean(prices[:, -20:], axis=1) + 1e-6)
     vol[vol == 0] = 1
-    # Increase power of volatility in denominator for stronger adjustment
     position_value = 5.0 * direction * confidence * max_dollar_position / ((vol + 1e-6) ** 1.5)
     position_in_shares = (position_value / prices[:, -1]).astype(int)
     pos_limits = (max_dollar_position / prices[:, -1]).astype(int)
     raw_position = np.clip(position_in_shares, -pos_limits, pos_limits)
-    # Moving average smoothing (more conservative)
     if prev_position is None:
         smoothed_position = raw_position
     else:
